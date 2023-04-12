@@ -58,6 +58,53 @@ def check_file_archive_tasks_outstanding(request):
     )
 
 
+@tasks.task(ignore_results=True, acks_late=True)
+def reconcile_file_archives(request):
+    metrics = request.find_service(IMetricsService, context=None)
+    primary_storage = request.find_service(IFileStorage, name="primary")
+    archive_storage = request.find_service(IFileStorage, name="archive")
+
+    files_batch = (
+        request.db.query(File)
+        .filter(File.archived == False)  # noqa: E712
+        .limit(request.settings["archive_reconciliation.batch_size"])
+    )
+
+    for file in files_batch.all():
+        try:
+            primary_checksum = primary_storage.get_checksum(file.path)
+        except FileNotFoundError:
+            # Metric, file not found!!!!
+            # Hmmmm OH FUCK, be loud, get that shit to sentry!
+            pass
+
+        try:
+            archive_checksum = archive_storage.get_checksum(file.path)
+        except FileNotFoundError:
+            if file.md5_digest == primary_checksum:
+                # Metric, unarchived file found
+                # Enqueue a sync_file_to_archive task
+                pass
+            else:
+                # Metric, IRRECOVERABLE file corruption found!!!!
+                # Hmmmm OH FUCK, be loud, get that shit to sentry!
+                pass
+
+        if file.md5_digest != primary_checksum:
+            if file.md5_digest == archive_checksum:
+                # Metric, recoverable file corruption found!!!!
+                # Hmmmm OH FUCK, be loud, get that shit to sentry!
+                # Q: do we just restore from archive?
+                pass
+            else:
+                # Metric, IRRECOVERABLE file corruption found!!!!
+                # Hmmmm OH FUCK, be loud, get that shit to sentry!
+                pass
+
+        if primary_checksum == archive_checksum:
+            file.archived = True
+
+
 @tasks.task(ignore_result=True, acks_late=True)
 def compute_2fa_mandate(request):
     # Get our own production dependencies
