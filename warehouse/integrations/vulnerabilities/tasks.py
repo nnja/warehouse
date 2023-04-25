@@ -116,7 +116,12 @@ def analyze_vulnerability_task(request, vulnerability_report, origin):
                 if release not in vulnerability_record.releases:
                     vulnerability_record.releases.append(release)
 
-            if not found_releases:
+            if found_releases and release:
+                # Mark the release as dirty in the database, to
+                # force a cache flush to display the latest vulnerability
+                # data
+                orm.attributes.flag_dirty(release)
+            else:
                 # no releases found, log this
                 metrics.increment(
                     "warehouse.vulnerabilities.error.no_releases_found",
@@ -126,6 +131,8 @@ def analyze_vulnerability_task(request, vulnerability_report, origin):
             # Unassociate any releases that no longer apply.
             for release in list(vulnerability_record.releases):
                 if release.version not in report.versions:
+                    # Mark the release dirty for cache invalidation
+                    orm.attributes.flag_dirty(release)
                     vulnerability_record.releases.remove(release)
 
     metrics.increment("warehouse.vulnerabilities.processed", tags=[f"origin:{origin}"])
