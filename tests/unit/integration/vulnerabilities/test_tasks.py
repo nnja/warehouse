@@ -12,6 +12,7 @@
 
 import collections
 import datetime
+import sqlalchemy.orm.attributes
 
 import faker
 import pretend
@@ -144,7 +145,10 @@ def test_analyze_vulnerability_update_metadata(db_request, metrics):
     }
 
 
-def test_analyze_vulnerability_add_release(db_request, metrics):
+def test_analyze_vulnerability_add_release(db_request, metrics, monkeypatch):
+    flag_release_dirty_recorder = pretend.call_recorder(lambda release: None)
+    monkeypatch.setattr(sqlalchemy.orm.attributes, "flag_dirty", flag_release_dirty_recorder)
+
     project = ProjectFactory.create()
     release1 = ReleaseFactory.create(project=project, version="1.0")
     release2 = ReleaseFactory.create(project=project, version="2.0")
@@ -177,7 +181,12 @@ def test_analyze_vulnerability_add_release(db_request, metrics):
         ("warehouse.vulnerabilities.valid", ("origin:test_report_source",)): 1,
     }
 
+    assert flag_release_dirty_recorder.calls == [pretend.call(release1)]
+
+
     metrics_counter.clear()
+    flag_release_dirty_recorder.calls.clear()
+
 
     tasks.analyze_vulnerability_task(
         request=db_request,
@@ -190,6 +199,9 @@ def test_analyze_vulnerability_add_release(db_request, metrics):
         },
         origin="test_report_source",
     )
+
+    assert flag_release_dirty_recorder.calls == [pretend.call(release2)]
+
 
     assert len(release1.vulnerabilities) == 1
     assert len(release2.vulnerabilities) == 1
